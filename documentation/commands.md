@@ -3,5 +3,11 @@
 - `docker exec -it airflow cat standalone_admin_password.txt`: Capturar a senha do airflow
 
 
+## Para acessar a máquina do Airflow:
+
+- `docker ps`: Lista os containers ativos
+- `docker exec -it <container name> /bin/bash`: Executa o bash na máquina do airflow
+- `ls -la <folder>`: Lista os arquivos dentro da pasta
+
 ## TO DO
 - O que é dockerfile?

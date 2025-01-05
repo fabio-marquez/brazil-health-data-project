@@ -7,6 +7,7 @@ import boto3
 from botocore.client import Config
 import os
 import logging
+from utils.storage import Storage
 
 default_args = {
     'owner': 'airflow',
@@ -43,24 +44,26 @@ def upload_file_to_minio(file_path, bucket_name, object_name):
 
     logging.info(f"Starting upload of {file_path} to bucket {bucket_name} as {object_name}")
 
-    # Initialize MinIO client
-    s3_client = boto3.client(
-        's3',
-        endpoint_url = os.environ.get('MINIO_ENDPOINT'),
-        aws_access_key_impid = os.environ.get('MINIO_ACCESS_KEY'),
-        aws_secret_access_key = os.environ.get('MINIO_SECRET_KEY'),
-        region_name = 'us-east-1',
-    )
+    # # Initialize MinIO client
+    # s3_client = boto3.client(
+    #     's3',
+    #     endpoint_url = os.environ.get('MINIO_ENDPOINT'),
+    #     aws_access_key_id = os.environ.get('MINIO_ACCESS_KEY'),
+    #     aws_secret_access_key = os.environ.get('MINIO_SECRET_KEY'),
+    #     region_name = 'us-east-1',
+    # )
+
+    storage = Storage()
 
     # Ensure the bucket exists
     try:
-        s3_client.head_bucket(Bucket=bucket_name)
+        storage.head_bucket(Bucket=bucket_name)
     except Exception:
-        s3_client.create_bucket(Bucket=bucket_name)
+        storage.create_bucket(Bucket=bucket_name)
 
     # Upload the file
     try:
-        s3_client.upload_file(file_path, bucket_name, object_name)
+        storage.upload_file(file_path, bucket_name, object_name)
         logging.info(f"File {file_path} uploaded successfully to {bucket_name}/{object_name}")
     except Exception as e:
         logging.error(f"Failed to upload file {file_path} to bucket {bucket_name}")
@@ -68,14 +71,16 @@ def upload_file_to_minio(file_path, bucket_name, object_name):
 
 # Function to extract and upload files to MinIO
 def extract_and_upload_zip(zip_path, bucket_name):
-    # Initialize MinIO client
-    s3_client = boto3.client(
-        's3',
-        endpoint_url = os.environ.get('MINIO_ENDPOINT'),
-        aws_access_key_id = os.environ.get('MINIO_ACCESS_KEY'),
-        aws_secret_access_key = os.environ.get('MINIO_SECRET_KEY'),
-        region_name = 'us-east-1',
-    )
+    # # Initialize MinIO client
+    # s3_client = boto3.client(
+    #     's3',
+    #     endpoint_url = os.environ.get('MINIO_ENDPOINT'),
+    #     aws_access_key_id = os.environ.get('MINIO_ACCESS_KEY'),
+    #     aws_secret_access_key = os.environ.get('MINIO_SECRET_KEY'),
+    #     region_name = 'us-east-1',
+    # )
+
+    storage = Storage()
 
     # Extract ZIP contents
     extract_path = '/tmp/extracted_files'
@@ -89,21 +94,8 @@ def extract_and_upload_zip(zip_path, bucket_name):
         for file in files:
             file_path = os.path.join(root, file)
             object_name = os.path.relpath(file_path, extract_path)
-            s3_client.upload_file(file_path, bucket_name, object_name)
+            storage.upload_file(file_path, bucket_name, object_name)
 
-# Define the task to handle the ZIP file
-def download_extract_and_store_zip(**kwargs):
-    url = kwargs.get('url', 'https://example.com/sample.zip')
-    local_zip_path = '/tmp/example.zip'
-
-    # Step 1: Download the ZIP file
-    download_zip_file(url, local_zip_path)
-
-    # Step 2: Upload ZIP to landing bucket
-    upload_file_to_minio(local_zip_path, LANDING_BUCKET_NAME, os.path.basename(local_zip_path))
-
-    # Step 3: Extract and upload contents to processed bucket
-    extract_and_upload_zip(local_zip_path, PROCESSED_BUCKET_NAME)
 
 # Define the DAG
 default_args = {
@@ -124,12 +116,36 @@ with DAG(
     catchup=False,
 ) as dag:
 
-    task = PythonOperator(
-        task_id='download_extract_and_store_zip',
-        python_callable=download_extract_and_store_zip,
+     # Task 1: Download ZIP file
+    download_zip_task = PythonOperator(
+        task_id='download_zip',
+        python_callable=download_zip_file,
         op_kwargs={
-            'url': 'https://cnes.datasus.gov.br/EstatisticasServlet?path=BASE_DE_DADOS_CNES_202411.ZIP',  # Replace with your ZIP file URL
-        }
+            'url': 'https://github.com//fabio-marquez/learning-ai/archive/refs/heads/main.zip',
+            'download_path': '/tmp/example.zip',
+        },
     )
 
-task
+    # Task 2: Upload ZIP to landing bucket
+    upload_zip_task = PythonOperator(
+        task_id='upload_zip_to_landing',
+        python_callable=upload_file_to_minio,
+        op_kwargs={
+            'file_path': '/tmp/example.zip',
+            'bucket_name': LANDING_BUCKET_NAME,
+            'object_name': 'example.zip',
+        },
+    )
+
+    # Task 3: Extract ZIP contents and upload to processed bucket
+    extract_and_upload_task = PythonOperator(
+        task_id='extract_and_upload_contents',
+        python_callable=extract_and_upload_zip,
+        op_kwargs={
+            'zip_path': '/tmp/example.zip',
+            'bucket_name': PROCESSED_BUCKET_NAME,
+        },
+    )
+
+    # Define task dependencies
+    download_zip_task >> upload_zip_task >> extract_and_upload_task
